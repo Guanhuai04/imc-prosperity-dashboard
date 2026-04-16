@@ -226,6 +226,33 @@ select {
   border-color: rgba(237, 118, 129, 0.25) !important;
 }
 
+.sidebar-notice-panel {
+  background: linear-gradient(180deg, rgba(255, 209, 103, 0.05), rgba(255, 255, 255, 0.03));
+}
+
+.sidebar-notice-toggle {
+  display: block;
+  width: 100%;
+}
+
+.sidebar-notice-chevron {
+  color: #d9e3f4;
+  transition: transform 140ms ease;
+}
+
+.sidebar-notice-chevron-open {
+  transform: rotate(180deg);
+}
+
+.sidebar-notice-list {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 0.75rem;
+}
+
+.sidebar-notice-item {
+  line-height: 1.45;
+}
+
 .sidebar-section-label {
   color: #7f8ba0;
   font-size: 0.72rem;
@@ -616,5 +643,6 @@ select {
 .inspector-log-code {
   max-height: none;
 }
+
 
 

@@ -20,10 +20,11 @@ import { Dropzone } from "@mantine/dropzone";
 import {
   IconAlertTriangle,
   IconChartCandle,
+  IconChevronDown,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { memo } from "react";
+import { memo, useState } from "react";
 import {
   BOOK_LEVEL_OPTIONS,
   INDICATOR_OPTIONS,
@@ -86,6 +87,7 @@ export const ControlPanel = memo(function ControlPanel({
   const normalizationOptions = NORMALIZATION_OPTIONS.filter(
     (option) => option.value !== "bestBid" && option.value !== "bestAsk",
   );
+  const [showParserNotices, setShowParserNotices] = useState(false);
 
   function isRunActive(group: RunSummary) {
     return (
@@ -184,21 +186,6 @@ export const ControlPanel = memo(function ControlPanel({
           </Paper>
         ) : null}
 
-        {warnings.length > 0 ? (
-          <Paper className="sidebar-inline-note" p="sm" radius="lg" withBorder>
-            <Group justify="space-between" wrap="nowrap">
-              <Group gap={8} wrap="nowrap">
-                <IconAlertTriangle size={14} />
-                <Text fw={600} size="xs">
-                  {warnings.length} parser notice{warnings.length === 1 ? "" : "s"}
-                </Text>
-              </Group>
-              <Badge color="yellow" radius="xl" size="sm" variant="light">
-                {warnings.length}
-              </Badge>
-            </Group>
-          </Paper>
-        ) : null}
 
         <ScrollArea className="control-sidebar-scroll" offsetScrollbars>
           <Stack gap="lg">
@@ -443,6 +430,46 @@ export const ControlPanel = memo(function ControlPanel({
                       value={minVolumeThreshold}
                       onChange={setMinVolumeThreshold}
                     />
+
+                    {warnings.length > 0 ? (
+                      <Paper className="sidebar-inline-note sidebar-notice-panel" p="xs" radius="lg" withBorder>
+                        <UnstyledButton
+                          className="sidebar-notice-toggle"
+                          onClick={() => setShowParserNotices((current) => !current)}
+                        >
+                          <Group justify="space-between" wrap="nowrap">
+                            <Group gap={8} wrap="nowrap">
+                              <IconAlertTriangle size={14} />
+                              <Text fw={600} size="xs">
+                                Parser notices
+                              </Text>
+                            </Group>
+                            <Group gap="xs" wrap="nowrap">
+                              <Badge color="yellow" radius="xl" size="sm" variant="light">
+                                {warnings.length}
+                              </Badge>
+                              <IconChevronDown
+                                className={
+                                  showParserNotices
+                                    ? "sidebar-notice-chevron sidebar-notice-chevron-open"
+                                    : "sidebar-notice-chevron"
+                                }
+                                size={14}
+                              />
+                            </Group>
+                          </Group>
+                        </UnstyledButton>
+                        {showParserNotices ? (
+                          <Stack className="sidebar-notice-list" gap={6} mt="sm">
+                            {warnings.map((warning) => (
+                              <Text key={warning} c="dimmed" className="sidebar-notice-item" size="xs">
+                                {warning}
+                              </Text>
+                            ))}
+                          </Stack>
+                        ) : null}
+                      </Paper>
+                    ) : null}
                   </Stack>
                 </Accordion.Panel>
               </Accordion.Item>
@@ -455,5 +482,9 @@ export const ControlPanel = memo(function ControlPanel({
     </Paper>
   );
 });
+
+
+
+
 
 
