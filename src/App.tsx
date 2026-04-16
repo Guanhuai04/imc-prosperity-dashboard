@@ -80,7 +80,7 @@ export function App() {
   const hoveredTimestamp = useDashboardStore((state) => state.hoveredTimestamp);
   const visibleRange = useDashboardStore((state) => state.visibleRange);
   const addImportedBatch = useDashboardStore((state) => state.addImportedBatch);
-  const clearAllData = useDashboardStore((state) => state.clearAllData);
+  const removeImportedFiles = useDashboardStore((state) => state.removeImportedFiles);
   const setHoveredTimestamp = useDashboardStore((state) => state.setHoveredTimestamp);
   const setSelectedFileIds = useDashboardStore((state) => state.setSelectedFileIds);
   const setVisibleRange = useDashboardStore((state) => state.setVisibleRange);
@@ -226,26 +226,40 @@ export function App() {
     await importRunGroups(groups);
   }
 
-  function handleClearSession() {
-    setRunGroups([]);
-    setImportError(null);
-    clearAllData();
+  function handleRemoveRun(groupId: string) {
+    const removedGroup = runGroups.find((group) => group.groupId === groupId);
+    if (!removedGroup) {
+      return;
+    }
+
+    const remainingGroups = runGroups.filter((group) => group.groupId !== groupId);
+    const isActiveRun =
+      selectedFileIds.length === removedGroup.fileIds.length &&
+      removedGroup.fileIds.every((fileId) => selectedFileIds.includes(fileId));
+    const nextSelectedFileIds = isActiveRun
+      ? (remainingGroups[0]?.fileIds ?? [])
+      : selectedFileIds.filter((fileId) => !removedGroup.fileIds.includes(fileId));
+
+    startTransition(() => {
+      setRunGroups(remainingGroups);
+      removeImportedFiles(removedGroup.fileIds, nextSelectedFileIds);
+    });
   }
+
 
   return (
     <Box className="app-shell">
       <Box className="background-grid" />
       <Box className="workspace-shell">
         <ControlPanel
-          hasData={fileSummaries.length > 0}
           importError={importError}
           isLoading={isImporting}
           runGroups={runGroups}
           warnings={warnings}
-          onClear={handleClearSession}
           onImportSources={(files) => {
             void handleImportSources(files);
           }}
+          onRemoveRun={handleRemoveRun}
         />
 
         <Box className="workspace-main">
@@ -325,3 +339,8 @@ export function App() {
     </Box>
   );
 }
+
+
+
+
+

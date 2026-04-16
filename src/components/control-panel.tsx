@@ -1,7 +1,7 @@
 import {
   Accordion,
+  ActionIcon,
   Badge,
-  Button,
   Divider,
   Group,
   MultiSelect,
@@ -20,8 +20,8 @@ import { Dropzone } from "@mantine/dropzone";
 import {
   IconAlertTriangle,
   IconChartCandle,
-  IconTrash,
   IconUpload,
+  IconX,
 } from "@tabler/icons-react";
 import { memo } from "react";
 import {
@@ -33,23 +33,21 @@ import type { RunSummary } from "../lib/types";
 import { useDashboardStore } from "../store/dashboard-store";
 
 interface ControlPanelProps {
-  hasData: boolean;
   importError: string | null;
   isLoading: boolean;
   runGroups: RunSummary[];
   warnings: string[];
-  onClear: () => void;
   onImportSources: (files: File[]) => void;
+  onRemoveRun: (groupId: string) => void;
 }
 
 export const ControlPanel = memo(function ControlPanel({
-  hasData,
   importError,
   isLoading,
   runGroups,
   warnings,
-  onClear,
   onImportSources,
+  onRemoveRun,
 }: ControlPanelProps) {
   const products = useDashboardStore((state) => state.products);
   const days = useDashboardStore((state) => state.days);
@@ -216,28 +214,40 @@ export const ControlPanel = memo(function ControlPanel({
                   {runGroups.map((group) => {
                     const active = isRunActive(group);
                     return (
-                      <UnstyledButton
-                        key={group.groupId}
-                        className={active ? "sidebar-run-card sidebar-run-card-active" : "sidebar-run-card"}
-                        onClick={() => selectRun(group)}
-                      >
-                        <Group justify="space-between" wrap="nowrap">
-                          <div>
-                            <Text fw={700} size="sm">{group.label}</Text>
-                            <Text c="dimmed" size="xs">
-                              {group.assetCount} assets · {group.tickCount.toLocaleString()} ticks
-                            </Text>
-                          </div>
-                          <Badge
-                            color={group.kind === "log" ? "violet" : group.kind === "archive" ? "orange" : "blue"}
-                            radius="sm"
-                            size="sm"
-                            variant={active ? "filled" : "light"}
-                          >
-                            {group.kind === "log" ? "LOG" : group.kind === "archive" ? "ZIP" : "DATA"}
-                          </Badge>
-                        </Group>
-                      </UnstyledButton>
+                      <div key={group.groupId} className="sidebar-run-card-shell">
+                        <UnstyledButton
+                          className={active ? "sidebar-run-card sidebar-run-card-active" : "sidebar-run-card"}
+                          onClick={() => selectRun(group)}
+                        >
+                          <Group justify="space-between" wrap="nowrap">
+                            <div>
+                              <Text fw={700} size="sm">{group.label}</Text>
+                              <Text c="dimmed" size="xs">
+                                {group.assetCount} assets · {group.tickCount.toLocaleString()} ticks
+                              </Text>
+                            </div>
+                            <Badge
+                              color={group.kind === "log" ? "violet" : group.kind === "archive" ? "orange" : "blue"}
+                              radius="sm"
+                              size="sm"
+                              variant={active ? "filled" : "light"}
+                            >
+                              {group.kind === "log" ? "LOG" : group.kind === "archive" ? "ZIP" : "DATA"}
+                            </Badge>
+                          </Group>
+                        </UnstyledButton>
+                        <ActionIcon
+                          aria-label={`Remove ${group.label}`}
+                          className="sidebar-run-remove"
+                          color="red"
+                          radius="xl"
+                          size="sm"
+                          variant="subtle"
+                          onClick={() => onRemoveRun(group.groupId)}
+                        >
+                          <IconX size={14} />
+                        </ActionIcon>
+                      </div>
                     );
                   })}
                 </Stack>
@@ -440,17 +450,10 @@ export const ControlPanel = memo(function ControlPanel({
           </Stack>
         </ScrollArea>
 
-        <Button
-          color="red"
-          disabled={!hasData}
-          leftSection={<IconTrash size={15} />}
-          radius="lg"
-          variant="subtle"
-          onClick={onClear}
-        >
-          Clear session
-        </Button>
+
       </Stack>
     </Paper>
   );
 });
+
+

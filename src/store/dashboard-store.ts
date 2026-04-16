@@ -3,7 +3,11 @@ import {
   DEFAULT_MAX_VISIBLE_QUOTE_POINTS,
   DEFAULT_MIN_VOLUME_THRESHOLD,
 } from "../lib/constants";
-import { EMPTY_DATASET, mergeImportedBatch } from "../lib/csv";
+import {
+  EMPTY_DATASET,
+  mergeImportedBatch,
+  removeImportedFilesFromDataset,
+} from "../lib/csv";
 import type {
   BookLevelKey,
   ImportedDataset,
@@ -15,6 +19,7 @@ interface DashboardState extends ImportedDataset {
   addImportedBatch: (batch: ImportedDataset) => void;
   selectedBookLevels: BookLevelKey[];
   clearAllData: () => void;
+  removeImportedFiles: (fileIds: string[], nextSelectedFileIds?: string[]) => void;
   hoveredTimestamp: number | null;
   maxVisibleQuotePoints: number;
   minVolumeThreshold: number;
@@ -90,6 +95,15 @@ function pickDefaultDay(days: number[]) {
   return [days[0]];
 }
 
+function pickPersistedOrDefaultDay(days: number[], selectedDays: number[]) {
+  const currentDay = selectedDays[0];
+  if (currentDay !== undefined && days.includes(currentDay)) {
+    return [currentDay];
+  }
+
+  return pickDefaultDay(days);
+}
+
 const INITIAL_EXTENT: [number, number] = [0, 10];
 const DEFAULT_BOOK_LEVELS: BookLevelKey[] = ["bid1", "ask1"];
 
@@ -145,6 +159,40 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       showPublicTrades: true,
       visibleRange: null,
     }));
+  },
+  removeImportedFiles(fileIds, nextSelectedFileIds) {
+    set((state) => {
+      const remaining = removeImportedFilesFromDataset(state, fileIds);
+      const nextProduct =
+        state.selectedProduct !== null && remaining.products.includes(state.selectedProduct)
+          ? state.selectedProduct
+          : (remaining.products[0] ?? null);
+      const extent = remaining.quantityExtent.length === 2 ? remaining.quantityExtent : INITIAL_EXTENT;
+      const quantityRange =
+        remaining.tradeRecords.length === 0 ? extent : clampRange(state.quantityRange, extent);
+      const validFileIds = new Set(
+        remaining.fileSummaries
+          .filter((summary) => summary.kind !== "unknown")
+          .map((summary) => summary.fileId),
+      );
+      const retainedSelection =
+        nextSelectedFileIds?.filter((fileId) => validFileIds.has(fileId)) ??
+        state.selectedFileIds.filter((fileId) => validFileIds.has(fileId));
+
+      return {
+        ...remaining,
+        hoveredTimestamp: null,
+        quantityRange,
+        selectedDays: pickPersistedOrDefaultDay(remaining.days, state.selectedDays),
+        selectedFileIds:
+          retainedSelection.length > 0 ? retainedSelection : Array.from(validFileIds),
+        selectedLogIndicators: state.selectedLogIndicators.filter((indicator) =>
+          remaining.logNumericKeys.includes(indicator),
+        ),
+        selectedProduct: nextProduct,
+        visibleRange: null,
+      };
+    });
   },
   hoveredTimestamp: null,
   maxVisibleQuotePoints: DEFAULT_MAX_VISIBLE_QUOTE_POINTS,
@@ -225,3 +273,4 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   showPublicTrades: true,
   visibleRange: null,
 }));
+

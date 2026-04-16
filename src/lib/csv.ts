@@ -313,9 +313,9 @@ function buildTradeRecord(
 
 function parseCsvTextRows(text: string) {
   const results = Papa.parse<RawCsvRow>(text, {
-    delimiter: ";",
+    delimitersToGuess: [";", ",", "\t", "|"],
     header: true,
-    skipEmptyLines: true,
+    skipEmptyLines: "greedy",
   });
 
   const fields = results.meta.fields?.map(normalizeHeader) ?? [];
@@ -665,85 +665,71 @@ function finalizeDataset(partial: {
   };
 }
 
-function parseCsvFile(file: File): Promise<ParsedFilePayload> {
+async function parseCsvFile(file: File): Promise<ParsedFilePayload> {
   const fileId = buildFileId(file);
   const fallbackDay = inferDay(file.name);
+  const rawText = await file.text();
+  const { errorCount, fields, rows } = parseCsvTextRows(rawText);
+  const kind = classifyFile(fields);
+  const parseWarnings = errorCount
+    ? [`Parser reported ${errorCount} warning(s).`]
+    : [];
 
-  return new Promise((resolve, reject) => {
-    Papa.parse<RawCsvRow>(file, {
-      complete(results) {
-        const fields = results.meta.fields?.map(normalizeHeader) ?? [];
-        const kind = classifyFile(fields);
-        const parseWarnings = results.errors.length
-          ? [`Parser reported ${results.errors.length} warning(s).`]
-          : [];
-        const rows = (results.data ?? [])
-          .map((row) => normalizeRow(row))
-          .filter((row) => Object.values(row).some((value) => hasNonEmptyCellValue(value)));
-
-        if (kind === "unknown") {
-          resolve({
-            fileSummary: {
-              dayValues: fallbackDay === null ? [] : [fallbackDay],
-              fileId,
-              fileName: file.name,
-              hasOwnTrades: false,
-              hasTraderIds: false,
-              kind,
-              parseWarnings: [
-                ...parseWarnings,
-                "Unsupported schema. Expected a Prosperity prices or trades CSV.",
-              ],
-              products: [],
-              rowCount: rows.length,
-              warnings: [],
-            },
-            logRecords: [],
-            priceSnapshots: [],
-            tradeRecords: [],
-          });
-          return;
-        }
-
-        if (kind === "prices") {
-          const { fileSummary, priceSnapshots } = buildPricePayloadFromRows(
-            rows,
-            fields,
-            fileId,
-            file.name,
-            fallbackDay,
-            parseWarnings,
-          );
-          resolve({
-            fileSummary,
-            logRecords: [],
-            priceSnapshots,
-            tradeRecords: [],
-          });
-          return;
-        }
-
-        const { fileSummary, tradeRecords } = buildTradePayloadFromRows(
-          rows,
-          fileId,
-          file.name,
-          fallbackDay,
-          parseWarnings,
-        );
-        resolve({
-          fileSummary,
-          logRecords: [],
-          priceSnapshots: [],
-          tradeRecords,
-        });
+  if (kind === "unknown") {
+    return {
+      fileSummary: {
+        dayValues: fallbackDay === null ? [] : [fallbackDay],
+        fileId,
+        fileName: file.name,
+        hasOwnTrades: false,
+        hasTraderIds: false,
+        kind,
+        parseWarnings: [
+          ...parseWarnings,
+          "Unsupported schema. Expected a Prosperity prices or trades CSV.",
+        ],
+        products: [],
+        rowCount: rows.length,
+        warnings: [],
       },
-      delimiter: ";",
-      error: reject,
-      header: true,
-      skipEmptyLines: true,
-      worker: true,
-    });
-  });
+      logRecords: [],
+      priceSnapshots: [],
+      tradeRecords: [],
+    };
+  }
+
+  if (kind === "prices") {
+    const { fileSummary, priceSnapshots } = buildPricePayloadFromRows(
+      rows,
+      fields,
+      fileId,
+      file.name,
+      fallbackDay,
+      parseWarnings,
+    );
+
+    return {
+      fileSummary,
+      logRecords: [],
+      priceSnapshots,
+      tradeRecords: [],
+    };
+  }
+
+  const { fileSummary, tradeRecords } = buildTradePayloadFromRows(
+    rows,
+    fileId,
+    file.name,
+    fallbackDay,
+    parseWarnings,
+  );
+
+  return {
+    fileSummary,
+    logRecords: [],
+    priceSnapshots: [],
+    tradeRecords,
+  };
 }
 
 async function parseLogFile(file: File): Promise<ParsedFilePayload> {
@@ -969,4 +955,20 @@ export function mergeImportedBatch(
     ],
   });
 }
+
+export function removeImportedFilesFromDataset(
+  current: ImportedDataset,
+  fileIds: string[],
+): ImportedDataset {
+  const removedIds = new Set(fileIds);
+
+  return finalizeDataset({
+    fileSummaries: current.fileSummaries.filter((summary) => !removedIds.has(summary.fileId)),
+    logRecords: current.logRecords.filter((record) => !removedIds.has(record.fileId)),
+    priceSnapshots: current.priceSnapshots.filter((snapshot) => !removedIds.has(snapshot.fileId)),
+    tradeRecords: current.tradeRecords.filter((trade) => !removedIds.has(trade.fileId)),
+  });
+}
+
+
 

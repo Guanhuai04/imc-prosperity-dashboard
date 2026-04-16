@@ -255,8 +255,27 @@ select {
   transform: translateY(-1px);
 }
 
+.sidebar-run-card-shell {
+  position: relative;
+}
+
 .sidebar-run-card {
-  padding: 0.8rem 0.9rem;
+  display: block;
+  padding: 0.8rem 3rem 0.8rem 0.9rem;
+  width: 100%;
+}
+
+.sidebar-run-remove {
+  color: rgba(255, 114, 114, 0.92) !important;
+  position: absolute;
+  right: 0.7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.sidebar-run-remove:hover {
+  background: rgba(201, 73, 73, 0.16);
 }
 
 .sidebar-run-card-active {
@@ -597,3 +616,5 @@ select {
 .inspector-log-code {
   max-height: none;
 }
+
+
