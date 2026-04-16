@@ -25,6 +25,7 @@ export type NormalizationKey =
   | "bestAsk";
 
 export type FileKind = "prices" | "trades" | "log" | "unknown";
+export type SourceGroupKind = "folder" | "archive" | "log" | "file";
 
 export type TradeClassification =
   | "buy-aggressor"
@@ -139,4 +140,16 @@ export interface TimeFilter {
   selectedDays: number[];
   selectedFileIds: string[];
   selectedProduct: string | null;
+}
+
+export interface RunSummary {
+  assetCount: number;
+  dayValues: number[];
+  fileCount: number;
+  fileIds: string[];
+  groupId: string;
+  kind: SourceGroupKind;
+  label: string;
+  tickCount: number;
+  warningCount: number;
 }

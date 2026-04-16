@@ -1,29 +1,12 @@
-import {
-  ActionIcon,
-  Alert,
-  Badge,
-  Box,
-  Collapse,
-  Container,
-  Grid,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  ThemeIcon,
-  Title,
-} from "@mantine/core";
-import { IconAlertCircle, IconChevronDown } from "@tabler/icons-react";
+import { Box, Grid, Stack } from "@mantine/core";
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { ControlPanel } from "./components/control-panel";
-import { FileDropzone } from "./components/file-dropzone";
-import { HoverSnapshot } from "./components/hover-snapshot";
-import { ImportedFilesPanel } from "./components/imported-files-panel";
-import { LogViewer } from "./components/log-viewer";
+import { InspectorSidebar } from "./components/inspector-sidebar";
 import { MainChart } from "./components/main-chart";
 import { MiniSeriesChart } from "./components/mini-series-chart";
 import { COLORS } from "./lib/constants";
 import { parseImportedFiles } from "./lib/csv";
+import { buildImportSourceGroups } from "./lib/import-sources";
 import {
   buildPnlSeries,
   buildPositionSeries,
@@ -36,21 +19,58 @@ import {
   findNearestSnapshot,
   findTradesAtTimestamp,
 } from "./lib/derived";
+import type { ImportedDataset, RunSummary, SourceGroupKind } from "./lib/types";
 import { useDashboardStore } from "./store/dashboard-store";
+
+interface PendingRunGroup {
+  files: File[];
+  id: string;
+  kind: SourceGroupKind;
+  label: string;
+}
+
+function summarizeRunGroup(group: PendingRunGroup, batch: ImportedDataset): RunSummary {
+  const tickCount = Math.max(
+    batch.priceSnapshots.length,
+    batch.logRecords.length,
+    batch.tradeRecords.length,
+    ...batch.fileSummaries.map((summary) => summary.rowCount),
+  );
+
+  return {
+    assetCount: batch.products.length,
+    dayValues: batch.days,
+    fileCount: batch.fileSummaries.length,
+    fileIds: batch.fileSummaries.map((summary) => summary.fileId),
+    groupId: group.id,
+    kind: group.kind,
+    label: group.label,
+    tickCount,
+    warningCount: batch.warnings.length,
+  };
+}
+
+function mergeRunGroups(existing: RunSummary[], incoming: RunSummary[]) {
+  const merged = new Map(existing.map((group) => [group.groupId, group]));
+
+  for (const group of incoming) {
+    merged.set(group.groupId, group);
+  }
+
+  return Array.from(merged.values()).sort((left, right) => left.label.localeCompare(right.label));
+}
 
 export function App() {
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const [warningsExpanded, setWarningsExpanded] = useState(false);
+  const [runGroups, setRunGroups] = useState<RunSummary[]>([]);
 
   const priceSnapshots = useDashboardStore((state) => state.priceSnapshots);
   const tradeRecords = useDashboardStore((state) => state.tradeRecords);
   const logRecords = useDashboardStore((state) => state.logRecords);
   const fileSummaries = useDashboardStore((state) => state.fileSummaries);
   const products = useDashboardStore((state) => state.products);
-  const days = useDashboardStore((state) => state.days);
   const warnings = useDashboardStore((state) => state.warnings);
-  const quantityExtent = useDashboardStore((state) => state.quantityExtent);
   const selectedProduct = useDashboardStore((state) => state.selectedProduct);
   const selectedFileIds = useDashboardStore((state) => state.selectedFileIds);
   const selectedDays = useDashboardStore((state) => state.selectedDays);
@@ -62,6 +82,7 @@ export function App() {
   const addImportedBatch = useDashboardStore((state) => state.addImportedBatch);
   const clearAllData = useDashboardStore((state) => state.clearAllData);
   const setHoveredTimestamp = useDashboardStore((state) => state.setHoveredTimestamp);
+  const setSelectedFileIds = useDashboardStore((state) => state.setSelectedFileIds);
   const setVisibleRange = useDashboardStore((state) => state.setVisibleRange);
 
   const filteredSnapshots = useMemo(
@@ -105,10 +126,7 @@ export function App() {
   );
 
   const pnlSeries = useMemo(() => buildPnlSeries(deferredSnapshots), [deferredSnapshots]);
-  const positionSeries = useMemo(
-    () => buildPositionSeries(deferredTrades),
-    [deferredTrades],
-  );
+  const positionSeries = useMemo(() => buildPositionSeries(deferredTrades), [deferredTrades]);
 
   const nearestSnapshot = useMemo(
     () => findNearestSnapshot(deferredSnapshots, hoveredTimestamp),
@@ -116,11 +134,7 @@ export function App() {
   );
 
   const tradesAtHover = useMemo(
-    () =>
-      findTradesAtTimestamp(
-        classifiedTrades,
-        nearestSnapshot?.timestamp ?? hoveredTimestamp,
-      ),
+    () => findTradesAtTimestamp(classifiedTrades, nearestSnapshot?.timestamp ?? hoveredTimestamp),
     [classifiedTrades, nearestSnapshot, hoveredTimestamp],
   );
 
@@ -130,8 +144,7 @@ export function App() {
   );
 
   const positionPointAtHover = useMemo(
-    () =>
-      findNearestPoint(positionSeries.points, nearestSnapshot?.timestamp ?? hoveredTimestamp),
+    () => findNearestPoint(positionSeries.points, nearestSnapshot?.timestamp ?? hoveredTimestamp),
     [positionSeries.points, nearestSnapshot, hoveredTimestamp],
   );
 
@@ -156,225 +169,159 @@ export function App() {
   }, [deferredSnapshots, setHoveredTimestamp]);
 
   useEffect(() => {
-    setWarningsExpanded(false);
-  }, []);
+    if (fileSummaries.length === 0) {
+      setRunGroups([]);
+      setImportError(null);
+    }
+  }, [fileSummaries.length]);
 
-  async function handleFilesSelected(files: File[]) {
+  async function importRunGroups(groups: PendingRunGroup[]) {
+    if (groups.length === 0) {
+      setImportError("No supported files were found in the selected import source.");
+      return;
+    }
+
     setImportError(null);
     setIsImporting(true);
 
     try {
-      const parsedBatch = await parseImportedFiles(files);
+      const parsed = await Promise.all(
+        groups.map(async (group) => ({
+          batch: await parseImportedFiles(group.files),
+          group,
+        })),
+      );
+
       startTransition(() => {
-        addImportedBatch(parsedBatch);
+        for (const { batch } of parsed) {
+          addImportedBatch(batch);
+        }
+
+        setRunGroups((current) =>
+          mergeRunGroups(
+            current,
+            parsed.map(({ batch, group }) => summarizeRunGroup(group, batch)),
+          ),
+        );
+
+        const focusedRun = parsed[0]?.batch.fileSummaries
+          .filter((summary) => summary.kind !== "unknown")
+          .map((summary) => summary.fileId);
+
+        if (focusedRun && focusedRun.length > 0) {
+          setSelectedFileIds(focusedRun);
+        }
       });
     } catch (error) {
       setImportError(
-        error instanceof Error ? error.message : "Failed to parse the selected CSV files.",
+        error instanceof Error ? error.message : "Failed to parse the selected import source.",
       );
     } finally {
       setIsImporting(false);
     }
   }
 
-  const hasData = fileSummaries.length > 0;
-  const warningCountLabel =
-    warnings.length === 1 ? "1 parser notice" : `${warnings.length} parser notices`;
-  const warningSummary = warnings.every((warning) =>
-    warning.includes("usable order-book levels"),
-  )
-    ? "Mostly rows without usable order-book levels."
-    : "Import notices and skipped rows are available.";
+  async function handleImportSources(files: File[]) {
+    const groups = await buildImportSourceGroups(files);
+    await importRunGroups(groups);
+  }
+
+  function handleClearSession() {
+    setRunGroups([]);
+    setImportError(null);
+    clearAllData();
+  }
 
   return (
     <Box className="app-shell">
       <Box className="background-grid" />
-      <Container fluid px="lg" py="lg" size="xl">
-        <Stack gap="lg">
-          <Paper className="hero-panel" p="xl" radius="xl" withBorder>
-            <div className="hero-grid">
-              <Stack className="hero-copy" gap="md">
-                <Text className="hero-kicker">IMC Prosperity Dashboard</Text>
-                <Title order={1} className="hero-title">
-                  Prosperity dashboard.
-                </Title>
-                <Text c="dimmed" className="hero-subtitle" size="md">
-                  Upload prices, trades, and official backtest log files to inspect
-                  quotes, trades, PnL, positions, and lambda logs in one workspace.
-                </Text>
-              </Stack>
+      <Box className="workspace-shell">
+        <ControlPanel
+          hasData={fileSummaries.length > 0}
+          importError={importError}
+          isLoading={isImporting}
+          runGroups={runGroups}
+          warnings={warnings}
+          onClear={handleClearSession}
+          onImportSources={(files) => {
+            void handleImportSources(files);
+          }}
+        />
 
-              <Box className="hero-dropzone">
-                <FileDropzone
-                  hasData={hasData}
-                  isLoading={isImporting}
-                  onClear={clearAllData}
-                  onFilesSelected={handleFilesSelected}
-                />
-              </Box>
-            </div>
-          </Paper>
+        <Box className="workspace-main">
+          <Stack gap="md">
+            <MainChart
+              isBusy={isImporting}
+              logRecords={deferredLogRecords}
+              normalization={normalization}
+              selectedIndicators={selectedIndicators}
+              selectedLogIndicators={selectedLogIndicators}
+              selectedProduct={selectedProduct}
+              snapshots={deferredSnapshots}
+              trades={classifiedTrades}
+              visibleRange={visibleRange}
+              onHoverTimestampChange={setHoveredTimestamp}
+              onVisibleRangeChange={setVisibleRange}
+            />
 
-          {importError ? (
-            <Alert
-              color="red"
-              icon={<IconAlertCircle size={16} />}
-              radius="lg"
-              title="Import error"
-              variant="light"
-            >
-              {importError}
-            </Alert>
-          ) : null}
-
-          {warnings.length > 0 ? (
-            <Paper className="warning-strip" p="sm" radius="xl" withBorder>
-              <Stack gap="xs">
-                <Group justify="space-between" wrap="nowrap">
-                  <Group gap="sm" wrap="nowrap">
-                    <ThemeIcon className="warning-strip-icon" color="yellow" radius="xl" size={36} variant="light">
-                      <IconAlertCircle size={18} />
-                    </ThemeIcon>
-                    <Stack gap={0}>
-                      <Text fw={700} size="sm">
-                        {warningCountLabel}
-                      </Text>
-                      <Text c="dimmed" size="xs">
-                        {warningSummary}
-                      </Text>
-                    </Stack>
-                  </Group>
-
-                  <Group gap="xs" wrap="nowrap">
-                    <Badge color="yellow" radius="xl" variant="light">
-                      {warnings.length}
-                    </Badge>
-                    <ActionIcon
-                      aria-label={warningsExpanded ? "Collapse warnings" : "Expand warnings"}
-                      className={warningsExpanded ? "warning-toggle warning-toggle-open" : "warning-toggle"}
-                      color="yellow"
-                      radius="xl"
-                      variant="light"
-                      onClick={() => setWarningsExpanded((open) => !open)}
-                    >
-                      <IconChevronDown size={16} />
-                    </ActionIcon>
-                  </Group>
-                </Group>
-
-                <Collapse expanded={warningsExpanded}>
-                  <Stack gap={6} mt="xs">
-                    {warnings.map((warning, index) => (
-                      <Text className="warning-line" key={`${index}:${warning}`} size="sm">
-                        {warning}
-                      </Text>
-                    ))}
-                  </Stack>
-                </Collapse>
-              </Stack>
-            </Paper>
-          ) : null}
-
-          <Grid align="stretch" className="page-grid top-dashboard-grid" gap="lg">
-            <Grid.Col className="main-column-col" span={{ base: 12, xl: 8.35 }}>
-              <Stack className="main-column-stack" gap="lg">
-                <MainChart
-                  isBusy={isImporting}
-                  logRecords={deferredLogRecords}
-                  normalization={normalization}
-                  selectedIndicators={selectedIndicators}
-                  selectedLogIndicators={selectedLogIndicators}
-                  selectedProduct={selectedProduct}
-                  snapshots={deferredSnapshots}
-                  trades={classifiedTrades}
-                  visibleRange={visibleRange}
+            <Grid className="mini-panels-grid compact-mini-panels">
+              <Grid.Col className="mini-panel-col" span={{ base: 12, md: 6 }}>
+                <MiniSeriesChart
+                  accentColor={COLORS.pnl}
+                  description={
+                    pnlSeries.isAllZero
+                      ? "All-zero public PnL series."
+                      : "Product PnL from the filtered snapshots."
+                  }
+                  hoveredTimestamp={hoveredTimestamp}
+                  label={
+                    pnlPointAtHover
+                      ? `${pnlPointAtHover.value.toFixed(2)} shells`
+                      : pnlSeries.isAllZero
+                        ? "0.00 shells"
+                        : "No PnL point"
+                  }
+                  points={pnlSeries.points}
+                  statusBadge={pnlSeries.isAllZero ? "All-zero public data" : undefined}
+                  title="PnL Panel"
                   onHoverTimestampChange={setHoveredTimestamp}
-                  onVisibleRangeChange={setVisibleRange}
                 />
+              </Grid.Col>
+              <Grid.Col className="mini-panel-col" span={{ base: 12, md: 6 }}>
+                <MiniSeriesChart
+                  accentColor={COLORS.position}
+                  description="Net position reconstructed from SUBMISSION trades."
+                  emptyState={
+                    positionSeries.hasData
+                      ? undefined
+                      : "No SUBMISSION trades are available for this product."
+                  }
+                  hoveredTimestamp={hoveredTimestamp}
+                  label={
+                    positionPointAtHover
+                      ? `${positionPointAtHover.value.toFixed(0)} lots`
+                      : "No position data"
+                  }
+                  points={positionSeries.points}
+                  title="Position Panel"
+                  onHoverTimestampChange={setHoveredTimestamp}
+                />
+              </Grid.Col>
+            </Grid>
+          </Stack>
+        </Box>
 
-                <Grid className="mini-panels-grid" gap="lg">
-                  <Grid.Col className="mini-panel-col" span={{ base: 12, md: 6 }}>
-                    <MiniSeriesChart
-                      accentColor={COLORS.pnl}
-                      description={
-                        pnlSeries.isAllZero
-                          ? "All-zero public PnL series. The panel stays visible to preserve layout."
-                          : "Product PnL series pulled from the price snapshots."
-                      }
-                      hoveredTimestamp={hoveredTimestamp}
-                      label={
-                        pnlPointAtHover
-                          ? `${pnlPointAtHover.value.toFixed(2)} shells`
-                          : pnlSeries.isAllZero
-                            ? "0.00 shells"
-                            : "No PnL point"
-                      }
-                      points={pnlSeries.points}
-                      statusBadge={pnlSeries.isAllZero ? "All-zero public data" : undefined}
-                      title="PnL Panel"
-                      onHoverTimestampChange={setHoveredTimestamp}
-                    />
-                  </Grid.Col>
-                  <Grid.Col className="mini-panel-col" span={{ base: 12, md: 6 }}>
-                    <MiniSeriesChart
-                      accentColor={COLORS.position}
-                      description="Net position reconstructed from trades where buyer or seller is SUBMISSION."
-                      emptyState={
-                        positionSeries.hasData
-                          ? undefined
-                          : "Current files do not contain SUBMISSION trades for this product."
-                      }
-                      hoveredTimestamp={hoveredTimestamp}
-                      label={
-                        positionPointAtHover
-                          ? `${positionPointAtHover.value.toFixed(0)} lots`
-                          : "No position data"
-                      }
-                      points={positionSeries.points}
-                      title="Position Panel"
-                      onHoverTimestampChange={setHoveredTimestamp}
-                    />
-                  </Grid.Col>
-                </Grid>
-              </Stack>
-            </Grid.Col>
-
-            <Grid.Col className="sidebar-column-col" span={{ base: 12, xl: 3.65 }}>
-              <Stack className="sidebar-stack" gap="lg">
-                <ControlPanel />
-              </Stack>
-            </Grid.Col>
-          </Grid>
-
-          <Grid className="page-grid" gap="lg">
-            <Grid.Col span={{ base: 12, xl: 4 }}>
-              <HoverSnapshot
-                hoveredTimestamp={hoveredTimestamp}
-                indicators={selectedIndicators}
-                normalization={normalization}
-                pnlPoint={pnlPointAtHover}
-                positionPoint={positionPointAtHover}
-                snapshots={deferredSnapshots}
-                trades={tradesAtHover}
-              />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, xl: 4 }}>
-              <LogViewer
-                hoveredTimestamp={hoveredTimestamp}
-                logRecord={nearestLogRecord}
-              />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, xl: 4 }}>
-              <ImportedFilesPanel
-                dayCount={days.length}
-                fileSummaries={fileSummaries}
-                maxQuantity={quantityExtent[1]}
-                productCount={products.length}
-              />
-            </Grid.Col>
-          </Grid>
-        </Stack>
-      </Container>
+        <InspectorSidebar
+          hoveredTimestamp={hoveredTimestamp}
+          indicators={selectedIndicators}
+          logRecord={nearestLogRecord}
+          normalization={normalization}
+          pnlPoint={pnlPointAtHover}
+          positionPoint={positionPointAtHover}
+          snapshots={deferredSnapshots}
+          trades={tradesAtHover}
+        />
+      </Box>
     </Box>
   );
 }

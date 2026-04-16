@@ -86,9 +86,9 @@ export const MiniSeriesChart = memo(function MiniSeriesChart({
             : [
                 {
                   line: {
-                    color: "rgba(255,255,255,0.18)",
+                    color: "rgba(118, 171, 255, 0.34)",
                     dash: "dot",
-                    width: 1,
+                    width: 1.15,
                   },
                   type: "line",
                   x0: hoveredTimestamp,
@@ -179,3 +179,4 @@ export const MiniSeriesChart = memo(function MiniSeriesChart({
     </Paper>
   );
 });
+

@@ -563,11 +563,11 @@ export const MainChart = memo(function MainChart({
           gridcolor: COLORS.grid,
           ...(visibleRange !== null ? { range: visibleRange } : {}),
           showspikes: true,
-          spikecolor: "rgba(255,255,255,0.26)",
+          spikecolor: "rgba(118, 171, 255, 0.48)",
           spikedash: "dot",
           spikemode: "across",
           spikesnap: "cursor",
-          spikethickness: 1,
+          spikethickness: 1.2,
           title: {
             standoff: 16,
             text: "Timestamp",
@@ -777,3 +777,4 @@ export const MainChart = memo(function MainChart({
     </Paper>
   );
 });
+

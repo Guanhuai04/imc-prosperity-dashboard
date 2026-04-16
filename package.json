@@ -16,6 +16,7 @@
     "@mantine/dropzone": "^9.0.2",
     "@mantine/hooks": "^9.0.2",
     "@tabler/icons-react": "^3.41.1",
+    "jszip": "^3.10.1",
     "papaparse": "^5.5.3",
     "plotly.js-dist-min": "^3.5.0",
     "react": "^19.2.4",

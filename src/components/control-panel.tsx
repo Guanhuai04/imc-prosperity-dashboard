@@ -1,28 +1,56 @@
 import {
+  Accordion,
+  Badge,
+  Button,
   Divider,
+  Group,
   MultiSelect,
   NumberInput,
   Paper,
   RangeSlider,
-  Select,
+  ScrollArea,
   Slider,
   Stack,
-  Group,
   Switch,
   Text,
-  Title,
+  ThemeIcon,
+  UnstyledButton,
 } from "@mantine/core";
+import { Dropzone } from "@mantine/dropzone";
+import {
+  IconAlertTriangle,
+  IconChartCandle,
+  IconTrash,
+  IconUpload,
+} from "@tabler/icons-react";
 import { memo } from "react";
 import {
   BOOK_LEVEL_OPTIONS,
   INDICATOR_OPTIONS,
   NORMALIZATION_OPTIONS,
-  TRADER_GROUPS,
 } from "../lib/constants";
+import type { RunSummary } from "../lib/types";
 import { useDashboardStore } from "../store/dashboard-store";
 
-export const ControlPanel = memo(function ControlPanel() {
-  const fileSummaries = useDashboardStore((state) => state.fileSummaries);
+interface ControlPanelProps {
+  hasData: boolean;
+  importError: string | null;
+  isLoading: boolean;
+  runGroups: RunSummary[];
+  warnings: string[];
+  onClear: () => void;
+  onImportSources: (files: File[]) => void;
+}
+
+export const ControlPanel = memo(function ControlPanel({
+  hasData,
+  importError,
+  isLoading,
+  runGroups,
+  warnings,
+  onClear,
+  onImportSources,
+}: ControlPanelProps) {
   const products = useDashboardStore((state) => state.products);
   const days = useDashboardStore((state) => state.days);
   const logNumericKeys = useDashboardStore((state) => state.logNumericKeys);
@@ -46,234 +74,382 @@ export const ControlPanel = memo(function ControlPanel() {
   const setSelectedDays = useDashboardStore((state) => state.setSelectedDays);
   const setSelectedBookLevels = useDashboardStore((state) => state.setSelectedBookLevels);
   const setSelectedIndicators = useDashboardStore((state) => state.setSelectedIndicators);
-  const setSelectedLogIndicators = useDashboardStore(
-    (state) => state.setSelectedLogIndicators,
-  );
+  const setSelectedLogIndicators = useDashboardStore((state) => state.setSelectedLogIndicators);
   const setNormalization = useDashboardStore((state) => state.setNormalization);
   const setQuantityRange = useDashboardStore((state) => state.setQuantityRange);
-  const setMaxVisibleQuotePoints = useDashboardStore(
-    (state) => state.setMaxVisibleQuotePoints,
-  );
+  const setMaxVisibleQuotePoints = useDashboardStore((state) => state.setMaxVisibleQuotePoints);
   const setMinVolumeThreshold = useDashboardStore((state) => state.setMinVolumeThreshold);
-  const setShowBookLevelCircles = useDashboardStore(
-    (state) => state.setShowBookLevelCircles,
-  );
+  const setShowBookLevelCircles = useDashboardStore((state) => state.setShowBookLevelCircles);
   const setShowOrderBook = useDashboardStore((state) => state.setShowOrderBook);
   const setShowPublicTrades = useDashboardStore((state) => state.setShowPublicTrades);
   const setShowOwnTrades = useDashboardStore((state) => state.setShowOwnTrades);
 
-  const knownFiles = fileSummaries.filter((summary) => summary.kind !== "unknown");
-  const hasTraderIds = fileSummaries.some((summary) => summary.hasTraderIds);
-  const traderGroupsConfigured = Object.keys(TRADER_GROUPS).length > 0;
   const [minQuantity, maxQuantity] = quantityRange;
+  const normalizationOptions = NORMALIZATION_OPTIONS.filter(
+    (option) => option.value !== "bestBid" && option.value !== "bestAsk",
+  );
 
-  function handleQuantityBoundChange(
-    index: 0 | 1,
-    value: string | number,
-  ) {
+  function isRunActive(group: RunSummary) {
+    return (
+      selectedFileIds.length === group.fileIds.length &&
+      group.fileIds.every((fileId) => selectedFileIds.includes(fileId))
+    );
+  }
+
+  function selectRun(group: RunSummary) {
+    if (!isRunActive(group)) {
+      setSelectedFileIds(group.fileIds);
+    }
+  }
+
+  function selectDay(day: number) {
+    if (selectedDays[0] !== day) {
+      setSelectedDays([day]);
+    }
+  }
+
+  function toggleOverlay(value: (typeof selectedIndicators)[number]) {
+    if (selectedIndicators.includes(value)) {
+      setSelectedIndicators(selectedIndicators.filter((indicator) => indicator !== value));
+      return;
+    }
+
+    setSelectedIndicators([...selectedIndicators, value]);
+  }
+
+  function toggleBookLevel(value: (typeof selectedBookLevels)[number]) {
+    if (selectedBookLevels.includes(value)) {
+      setSelectedBookLevels(selectedBookLevels.filter((level) => level !== value));
+      return;
+    }
+
+    setSelectedBookLevels([...selectedBookLevels, value]);
+  }
+
+  function handleQuantityBoundChange(index: 0 | 1, value: string | number) {
     if (typeof value !== "number" || Number.isNaN(value)) {
       return;
     }
 
-    const nextRange: [number, number] =
-      index === 0 ? [value, maxQuantity] : [minQuantity, value];
-    setQuantityRange(nextRange);
+    setQuantityRange(index === 0 ? [value, maxQuantity] : [minQuantity, value]);
   }
 
   return (
-    <Paper className="surface-panel control-panel-frame" p="md" radius="xl" withBorder>
-      <Stack gap="sm">
-        <Stack gap={4}>
-          <Text c="dimmed" fw={600} size="xs" tt="uppercase">
-            Selection Controls
-          </Text>
-          <Title order={3}>Filter the session and layer what matters.</Title>
-        </Stack>
-
-        <Stack gap="sm">
-          <Select
-            data={products.map((product) => ({ label: product, value: product }))}
-            label="Product"
-            nothingFoundMessage="Import a CSV or log file first"
-            placeholder="Select a product"
-            value={selectedProduct}
-            onChange={setSelectedProduct}
-          />
-
-          <MultiSelect
-            data={knownFiles.map((summary) => ({
-              label: `${summary.fileName} (${summary.kind})`,
-              value: summary.fileId,
-            }))}
-            label="Source files"
-            placeholder="Use all imported files"
-            value={selectedFileIds}
-            onChange={setSelectedFileIds}
-          />
-
-          <MultiSelect
-            data={days.map((day) => ({ label: `Day ${day}`, value: String(day) }))}
-            label="Day buckets"
-            placeholder="All detected days"
-            value={selectedDays.map(String)}
-            onChange={(values) => setSelectedDays(values.map(Number))}
-          />
-
-          <MultiSelect
-            data={INDICATOR_OPTIONS}
-            label="Overlay indicators"
-            placeholder="Choose metrics to overlay"
-            value={selectedIndicators}
-            onChange={(values) =>
-              setSelectedIndicators(values as typeof selectedIndicators)
-            }
-          />
-
-          <MultiSelect
-            data={logNumericKeys.map((indicator) => ({
-              label: indicator,
-              value: indicator,
-            }))}
-            label="Logged indicators"
-            nothingFoundMessage="Import an official log file first"
-            placeholder="Overlay parsed logger fields"
-            searchable
-            value={selectedLogIndicators}
-            onChange={setSelectedLogIndicators}
-          />
-
-          <Select
-            data={NORMALIZATION_OPTIONS}
-            label="Normalization"
-            value={normalization}
-            onChange={(value) => setNormalization((value ?? "none") as typeof normalization)}
-          />
-
-          <Divider />
-
-          <Stack gap="xs">
-            <Text fw={600} size="sm">
-              Display
+    <Paper className="surface-panel control-sidebar-frame" p="md" radius="xl" withBorder>
+      <Stack className="control-sidebar-stack" gap="md">
+        <Group gap="sm" wrap="nowrap">
+          <ThemeIcon className="sidebar-brand-icon" radius="lg" size={42} variant="light">
+            <IconChartCandle size={20} />
+          </ThemeIcon>
+          <div>
+            <Text fw={700} size="lg">
+              Prosperity Dashboard
             </Text>
-            <Switch
-              checked={showOrderBook}
-              label="Show order book levels"
-              onChange={(event) => setShowOrderBook(event.currentTarget.checked)}
-            />
-            <Switch
-              checked={showBookLevelCircles}
-              disabled={!showOrderBook}
-              label="Show Bid 1 / Ask 1 circles"
-              onChange={(event) => setShowBookLevelCircles(event.currentTarget.checked)}
-            />
-            <MultiSelect
-              data={BOOK_LEVEL_OPTIONS}
-              disabled={!showOrderBook}
-              label="Order book levels"
-              placeholder="Choose Bid / Ask 1, 2, 3"
-              value={selectedBookLevels}
-              onChange={(values) => setSelectedBookLevels(values as typeof selectedBookLevels)}
-            />
-            <Switch
-              checked={showPublicTrades}
-              label="Show public trades"
-              onChange={(event) => setShowPublicTrades(event.currentTarget.checked)}
-            />
-            <Switch
-              checked={showOwnTrades}
-              label="Show own trades"
-              onChange={(event) => setShowOwnTrades(event.currentTarget.checked)}
-            />
+            <Text c="dimmed" size="xs">
+              Round-time trading workspace
+            </Text>
+          </div>
+        </Group>
+
+        <Dropzone
+          className="sidebar-upload-dropzone"
+          disabled={isLoading}
+          loading={isLoading}
+          maxFiles={128}
+          multiple
+          onDrop={(files) => onImportSources(Array.from(files))}
+          radius="xl"
+        >
+          <Stack align="center" className="sidebar-upload-stack" gap="sm" justify="center">
+            <ThemeIcon className="sidebar-upload-icon" radius="xl" size={46} variant="light">
+              <IconUpload size={22} />
+            </ThemeIcon>
+            <div>
+              <Text fw={700} size="sm" ta="center">
+                {isLoading ? "Importing session data..." : "Upload Session Data"}
+              </Text>
+              <Text c="dimmed" className="sidebar-upload-copy" size="xs" ta="center">
+                Click to choose files, or drag a data folder, zip archive, or official log into this area.
+              </Text>
+            </div>
           </Stack>
+        </Dropzone>
 
-          <Divider />
-
-          <Stack gap="xs">
-            <Text fw={600} size="sm">
-              Quantity filter
+        {importError ? (
+          <Paper className="sidebar-inline-note sidebar-inline-note-error" p="sm" radius="lg" withBorder>
+            <Text fw={600} size="xs">
+              Import failed
             </Text>
-            <RangeSlider
-              label={(value) => `${value}`}
-              max={quantityExtent[1]}
-              min={quantityExtent[0]}
-              minRange={0}
-              step={1}
-              thumbSize={18}
-              value={quantityRange}
-              onChange={(value) => setQuantityRange(value as [number, number])}
-            />
-            <Group grow>
-              <NumberInput
-                hideControls
-                label="Min qty"
-                max={quantityExtent[1]}
-                min={quantityExtent[0]}
-                step={1}
-                value={minQuantity}
-                onChange={(value) => handleQuantityBoundChange(0, value)}
-              />
-              <NumberInput
-                hideControls
-                label="Max qty"
-                max={quantityExtent[1]}
-                min={quantityExtent[0]}
-                step={1}
-                value={maxQuantity}
-                onChange={(value) => handleQuantityBoundChange(1, value)}
-              />
+            <Text c="dimmed" size="xs">
+              {importError}
+            </Text>
+          </Paper>
+        ) : null}
+
+        {warnings.length > 0 ? (
+          <Paper className="sidebar-inline-note" p="sm" radius="lg" withBorder>
+            <Group justify="space-between" wrap="nowrap">
+              <Group gap={8} wrap="nowrap">
+                <IconAlertTriangle size={14} />
+                <Text fw={600} size="xs">
+                  {warnings.length} parser notice{warnings.length === 1 ? "" : "s"}
+                </Text>
+              </Group>
+              <Badge color="yellow" radius="xl" size="sm" variant="light">
+                {warnings.length}
+              </Badge>
             </Group>
-            <Text c="dimmed" size="xs">
-              Restrict visible trades to a size band. Useful when trader IDs are absent.
-            </Text>
-          </Stack>
+          </Paper>
+        ) : null}
 
-          <Stack gap="xs">
-            <Text fw={600} size="sm">
-              Performance
-            </Text>
-            <Slider
-              label={(value) => `${value} points`}
-              marks={[
-                { label: "1k", value: 1000 },
-                { label: "4k", value: 4000 },
-                { label: "8k", value: 8000 },
-              ]}
-              max={12000}
-              min={1000}
-              step={250}
-              thumbSize={18}
-              value={maxVisibleQuotePoints}
-              onChange={setMaxVisibleQuotePoints}
-            />
-            <Slider
-              label={(value) => `${value} lots`}
-              marks={[
-                { label: "0", value: 0 },
-                { label: "10", value: 10 },
-                { label: "25", value: 25 },
-              ]}
-              max={50}
-              min={0}
-              step={1}
-              thumbSize={18}
-              value={minVolumeThreshold}
-              onChange={setMinVolumeThreshold}
-            />
-          </Stack>
+        <ScrollArea className="control-sidebar-scroll" offsetScrollbars>
+          <Stack gap="lg">
+            <Stack gap="sm">
+              <Text className="sidebar-section-label">Runs</Text>
 
-          <Divider />
+              {runGroups.length === 0 ? (
+                <Text c="dimmed" size="xs">
+                  Import a csv data folder, zip archive, or official log file to create runs.
+                </Text>
+              ) : (
+                <Stack gap="xs">
+                  {runGroups.map((group) => {
+                    const active = isRunActive(group);
+                    return (
+                      <UnstyledButton
+                        key={group.groupId}
+                        className={active ? "sidebar-run-card sidebar-run-card-active" : "sidebar-run-card"}
+                        onClick={() => selectRun(group)}
+                      >
+                        <Group justify="space-between" wrap="nowrap">
+                          <div>
+                            <Text fw={700} size="sm">{group.label}</Text>
+                            <Text c="dimmed" size="xs">
+                              {group.assetCount} assets · {group.tickCount.toLocaleString()} ticks
+                            </Text>
+                          </div>
+                          <Badge
+                            color={group.kind === "log" ? "violet" : group.kind === "archive" ? "orange" : "blue"}
+                            radius="sm"
+                            size="sm"
+                            variant={active ? "filled" : "light"}
+                          >
+                            {group.kind === "log" ? "LOG" : group.kind === "archive" ? "ZIP" : "DATA"}
+                          </Badge>
+                        </Group>
+                      </UnstyledButton>
+                    );
+                  })}
+                </Stack>
+              )}
+            </Stack>
 
-          <Stack gap="xs">
-            <Text fw={600} size="sm">
-              Trader grouping
-            </Text>
-            <Text c="dimmed" size="xs">
-              {hasTraderIds && traderGroupsConfigured
-                ? "Trader IDs are present and group mappings can be enabled in the constants file."
-                : "Trader group filters are intentionally greyed out until buyer/seller IDs exist and mappings are configured."}
-            </Text>
+            <Stack gap="sm">
+              <Text className="sidebar-section-label">Products</Text>
+              {products.length === 0 ? (
+                <Text c="dimmed" size="xs">
+                  Products will appear after a successful import.
+                </Text>
+              ) : (
+                <Stack gap="xs">
+                  {products.map((product) => (
+                    <UnstyledButton
+                      key={product}
+                      className={selectedProduct === product ? "sidebar-product-pill sidebar-product-pill-active" : "sidebar-product-pill"}
+                      onClick={() => setSelectedProduct(product)}
+                    >
+                      <Text fw={600} size="sm">{product}</Text>
+                    </UnstyledButton>
+                  ))}
+                </Stack>
+              )}
+            </Stack>
+
+            {days.length > 1 ? (
+              <Stack gap="sm">
+                <Text className="sidebar-section-label">Days</Text>
+                <Group gap="xs">
+                  {days.map((day) => {
+                    const active = selectedDays[0] === day;
+                    return (
+                      <UnstyledButton
+                        key={day}
+                        className={active ? "sidebar-mini-pill sidebar-mini-pill-active" : "sidebar-mini-pill"}
+                        onClick={() => selectDay(day)}
+                      >
+                        <Text fw={600} size="xs">Day {day}</Text>
+                      </UnstyledButton>
+                    );
+                  })}
+                </Group>
+              </Stack>
+            ) : null}
+
+            <Accordion
+              chevronPosition="right"
+              className="sidebar-accordion"
+              defaultValue={["normalization", "indicators", "display"]}
+              multiple
+              variant="contained"
+            >
+              <Accordion.Item value="normalization">
+                <Accordion.Control>Normalization</Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="sm">
+                    <Text className="sidebar-subsection-title">Price baseline</Text>
+                    <Group gap="xs">
+                      {normalizationOptions.map((option) => {
+                        const active = normalization === option.value;
+                        return (
+                          <UnstyledButton
+                            key={option.value}
+                            className={active ? "sidebar-mini-pill sidebar-mini-pill-active" : "sidebar-mini-pill"}
+                            onClick={() => setNormalization(option.value)}
+                          >
+                            <Text fw={600} size="xs">{option.label.replace(" Price", "")}</Text>
+                          </UnstyledButton>
+                        );
+                      })}
+                    </Group>
+                    <Text c="dimmed" size="xs">
+                      Align plotted prices around a single baseline to compare spread, premium, and mean-reversion behaviour.
+                    </Text>
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+
+              <Accordion.Item value="indicators">
+                <Accordion.Control>Indicators</Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="sm">
+                    <Stack gap={6}>
+                      <Text className="sidebar-subsection-title">Price overlays</Text>
+                      <Group gap="xs">
+                        {INDICATOR_OPTIONS.map((indicator) => {
+                          const active = selectedIndicators.includes(indicator.value);
+                          return (
+                            <UnstyledButton
+                              key={indicator.value}
+                              className={active ? "sidebar-mini-pill sidebar-mini-pill-active" : "sidebar-mini-pill"}
+                              onClick={() => toggleOverlay(indicator.value)}
+                            >
+                              <Text fw={600} size="xs">{indicator.label}</Text>
+                            </UnstyledButton>
+                          );
+                        })}
+                      </Group>
+                    </Stack>
+
+                    {logNumericKeys.length > 0 ? (
+                      <Stack gap={6}>
+                        <Text className="sidebar-subsection-title">Logged overlays</Text>
+                        <MultiSelect
+                          data={logNumericKeys.map((indicator) => ({ label: indicator, value: indicator }))}
+                          nothingFoundMessage="No parsed log fields"
+                          placeholder="Choose logger metrics"
+                          searchable
+                          size="xs"
+                          value={selectedLogIndicators}
+                          onChange={setSelectedLogIndicators}
+                        />
+                      </Stack>
+                    ) : null}
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+
+              <Accordion.Item value="display">
+                <Accordion.Control>Display</Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="sm">
+                    <Switch checked={showOrderBook} label="Order book" size="sm" onChange={(event) => setShowOrderBook(event.currentTarget.checked)} />
+                    <Switch checked={showBookLevelCircles} disabled={!showOrderBook} label="Bid1/Ask1 circles" size="sm" onChange={(event) => setShowBookLevelCircles(event.currentTarget.checked)} />
+                    <Switch checked={showPublicTrades} label="Public trades" size="sm" onChange={(event) => setShowPublicTrades(event.currentTarget.checked)} />
+                    <Switch checked={showOwnTrades} label="Own trades" size="sm" onChange={(event) => setShowOwnTrades(event.currentTarget.checked)} />
+
+                    <Divider />
+
+                    <Group gap="xs">
+                      {BOOK_LEVEL_OPTIONS.map((level) => {
+                        const active = selectedBookLevels.includes(level.value);
+                        return (
+                          <UnstyledButton
+                            key={level.value}
+                            className={active ? "sidebar-mini-pill sidebar-mini-pill-active" : "sidebar-mini-pill"}
+                            onClick={() => toggleBookLevel(level.value)}
+                          >
+                            <Text fw={600} size="xs">{level.label}</Text>
+                          </UnstyledButton>
+                        );
+                      })}
+                    </Group>
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+
+              <Accordion.Item value="filters">
+                <Accordion.Control>Filters</Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="sm">
+                    <RangeSlider
+                      label={(value) => `${value}`}
+                      max={quantityExtent[1]}
+                      min={quantityExtent[0]}
+                      minRange={0}
+                      step={1}
+                      thumbSize={16}
+                      value={quantityRange}
+                      onChange={(value) => setQuantityRange(value as [number, number])}
+                    />
+                    <Group grow>
+                      <NumberInput hideControls label="Min qty" max={quantityExtent[1]} min={quantityExtent[0]} size="xs" value={minQuantity} onChange={(value) => handleQuantityBoundChange(0, value)} />
+                      <NumberInput hideControls label="Max qty" max={quantityExtent[1]} min={quantityExtent[0]} size="xs" value={maxQuantity} onChange={(value) => handleQuantityBoundChange(1, value)} />
+                    </Group>
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+
+              <Accordion.Item value="performance">
+                <Accordion.Control>Performance</Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="sm">
+                    <Slider
+                      label={(value) => `${value} points`}
+                      marks={[{ label: "1k", value: 1000 }, { label: "4k", value: 4000 }, { label: "8k", value: 8000 }]}
+                      max={12000}
+                      min={1000}
+                      step={250}
+                      thumbSize={16}
+                      value={maxVisibleQuotePoints}
+                      onChange={setMaxVisibleQuotePoints}
+                    />
+                    <Slider
+                      label={(value) => `${value} lots`}
+                      marks={[{ label: "0", value: 0 }, { label: "10", value: 10 }, { label: "25", value: 25 }]}
+                      max={50}
+                      min={0}
+                      step={1}
+                      thumbSize={16}
+                      value={minVolumeThreshold}
+                      onChange={setMinVolumeThreshold}
+                    />
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+            </Accordion>
           </Stack>
-        </Stack>
+        </ScrollArea>
+
+        <Button
+          color="red"
+          disabled={!hasData}
+          leftSection={<IconTrash size={15} />}
+          radius="lg"
+          variant="subtle"
+          onClick={onClear}
+        >
+          Clear session
+        </Button>
       </Stack>
     </Paper>
   );

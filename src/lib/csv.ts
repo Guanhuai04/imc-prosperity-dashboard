@@ -39,7 +39,13 @@ export const EMPTY_DATASET: ImportedDataset = {
 };
 
 function buildFileId(file: File) {
-  return `${file.name}:${file.size}:${file.lastModified}`;
+  const candidate = file as File & { webkitRelativePath?: string };
+  const relativePath =
+    typeof candidate.webkitRelativePath === "string" && candidate.webkitRelativePath.length > 0
+      ? candidate.webkitRelativePath
+      : file.name;
+
+  return `${relativePath}:${file.size}:${file.lastModified}`;
 }
 
 function normalizeHeader(header: unknown) {
@@ -963,6 +969,4 @@ export function mergeImportedBatch(
     ],
   });
 }
-
-
 

@@ -78,6 +78,18 @@ function clampRange(
   return lower <= upper ? [lower, upper] : extent;
 }
 
+function pickDefaultDay(days: number[]) {
+  if (days.length === 0) {
+    return [];
+  }
+
+  if (days.includes(0)) {
+    return [0];
+  }
+
+  return [days[0]];
+}
+
 const INITIAL_EXTENT: [number, number] = [0, 10];
 const DEFAULT_BOOK_LEVELS: BookLevelKey[] = ["bid1", "ask1"];
 
@@ -99,7 +111,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         ...merged,
         hoveredTimestamp: null,
         quantityRange,
-        selectedDays: merged.days,
+        selectedDays: pickDefaultDay(merged.days),
         selectedFileIds: merged.fileSummaries
           .filter((summary) => summary.kind !== "unknown")
           .map((summary) => summary.fileId),
@@ -163,7 +175,11 @@ export const useDashboardStore = create<DashboardState>((set) => ({
     set((state) => ({ quantityRange: clampRange(range, state.quantityExtent) }));
   },
   setSelectedDays(days) {
-    set(() => ({ hoveredTimestamp: null, selectedDays: days, visibleRange: null }));
+    set(() => ({
+      hoveredTimestamp: null,
+      selectedDays: days.length > 0 ? [days[0]] : [],
+      visibleRange: null,
+    }));
   },
   setSelectedFileIds(fileIds) {
     set(() => ({ hoveredTimestamp: null, selectedFileIds: fileIds, visibleRange: null }));
