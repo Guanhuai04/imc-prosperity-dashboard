@@ -42,31 +42,86 @@ function buildFileId(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
-function normalizeHeader(header: string) {
-  return header.trim().toLowerCase();
+function normalizeHeader(header: unknown) {
+  if (typeof header === "string") {
+    return header.trim().toLowerCase();
+  }
+
+  if (header === null || header === undefined) {
+    return "";
+  }
+
+  return String(header).trim().toLowerCase();
 }
 
-function normalizeRow(row: RawCsvRow) {
+function normalizeCellValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return undefined;
+}
+
+function hasNonEmptyCellValue(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.trim() !== "";
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+
+  if (typeof value === "boolean") {
+    return true;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasNonEmptyCellValue(entry));
+  }
+
+  return false;
+}
+
+function normalizeRow(row: Record<string, unknown>) {
   const normalized: RawCsvRow = {};
 
   for (const [key, value] of Object.entries(row)) {
-    normalized[normalizeHeader(key)] = value;
+    const normalizedKey = normalizeHeader(key);
+    if (!normalizedKey || normalizedKey === "__parsed_extra") {
+      continue;
+    }
+
+    normalized[normalizedKey] = normalizeCellValue(value);
   }
 
   return normalized;
 }
 
-function normalizeString(value: string | undefined) {
-  const trimmed = value?.trim() ?? "";
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function parseNumber(value: string | undefined) {
-  if (value === undefined) {
+function normalizeString(value: unknown) {
+  if (value === null || value === undefined) {
     return null;
   }
 
-  const trimmed = value.trim();
+  const stringValue = typeof value === "string" ? value : String(value);
+  const trimmed = stringValue.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseNumber(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const stringValue = typeof value === "string" ? value : String(value);
+  const trimmed = stringValue.trim();
   if (!trimmed) {
     return null;
   }
@@ -256,7 +311,7 @@ function parseCsvTextRows(text: string) {
   const fields = results.meta.fields?.map(normalizeHeader) ?? [];
   const rows = (results.data ?? [])
     .map((row) => normalizeRow(row))
-    .filter((row) => Object.values(row).some((value) => (value ?? "").trim() !== ""));
+    .filter((row) => Object.values(row).some((value) => hasNonEmptyCellValue(value)));
 
   return {
     errorCount: results.errors.length,
@@ -614,7 +669,7 @@ function parseCsvFile(file: File): Promise<ParsedFilePayload> {
           : [];
         const rows = (results.data ?? [])
           .map((row) => normalizeRow(row))
-          .filter((row) => Object.values(row).some((value) => (value ?? "").trim() !== ""));
+          .filter((row) => Object.values(row).some((value) => hasNonEmptyCellValue(value)));
 
         if (kind === "unknown") {
           resolve({
@@ -904,3 +959,5 @@ export function mergeImportedBatch(
     ],
   });
 }
+
+
