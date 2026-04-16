@@ -86,8 +86,12 @@ function hasNonEmptyCellValue(value: unknown): boolean {
   return false;
 }
 
-function normalizeRow(row: Record<string, unknown>) {
+function normalizeRow(row: unknown) {
   const normalized: RawCsvRow = {};
+
+  if (typeof row !== "object" || row === null || Array.isArray(row)) {
+    return normalized;
+  }
 
   for (const [key, value] of Object.entries(row)) {
     const normalizedKey = normalizeHeader(key);
@@ -959,5 +963,6 @@ export function mergeImportedBatch(
     ],
   });
 }
+
 
 
